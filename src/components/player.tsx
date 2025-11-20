@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import YouTube, { type YouTubeProps, type YouTubePlayer } from "react-youtube";
 import { QrCode } from "./qr-code";
 import { type VideoInPlaylist } from "party";
@@ -17,6 +17,7 @@ type Props = {
   video: VideoInPlaylist;
   isFullscreen: boolean;
   onPlayerEnd: () => void;
+  onTogglePlayPauseRef?: React.MutableRefObject<(() => void) | null>;
 };
 
 export function Player({
@@ -24,12 +25,34 @@ export function Player({
   video,
   isFullscreen = false,
   onPlayerEnd,
+  onTogglePlayPauseRef,
 }: Props) {
   const playerRef = useRef<YouTubePlayer>(null);
 
   const [isReady, setIsReady] = useState(false);
   const [showOpenInYouTubeButton, setShowOpenInYouTubeButton] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  const togglePlayPause = useCallback(() => {
+    if (playerRef.current && isReady) {
+      const playerState = playerRef.current.getPlayerState();
+      // YouTube player states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
+      if (playerState === 1) {
+        // Playing - pause it
+        playerRef.current.pauseVideo();
+      } else if (playerState === 2 || playerState === 5 || playerState === -1) {
+        // Paused, cued, or unstarted - play it
+        playerRef.current.playVideo();
+      }
+    }
+  }, [isReady]);
+
+  // Set ref for global play/pause
+  useEffect(() => {
+    if (onTogglePlayPauseRef && isReady) {
+      onTogglePlayPauseRef.current = togglePlayPause;
+    }
+  }, [onTogglePlayPauseRef, togglePlayPause, isReady]);
 
   const opts: YouTubeProps["opts"] = {
     playerVars: {

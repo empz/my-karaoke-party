@@ -16,6 +16,7 @@ import { SongSearch } from "~/components/song-search";
 import { Button } from "~/components/ui/ui/button";
 import { env } from "~/env";
 import { getUrl } from "~/utils/url";
+import { useKeyboardShortcuts } from "~/utils/use-keyboard-shortcuts";
 
 type Props = {
   party: Party;
@@ -29,18 +30,22 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
 
   const [playHorn] = useSound("/sounds/buzzer.mp3");
   const lastHornTimeRef = useRef<number>(0);
+  const togglePlayPauseRef = useRef<(() => void) | null>(null);
 
   // Throttled horn function
   const playThrottledHorn = () => {
     const now = Date.now();
     const timeSinceLastHorn = now - lastHornTimeRef.current;
 
-    if (timeSinceLastHorn >= 5000) { // 5 seconds in milliseconds
+    if (timeSinceLastHorn >= 5000) {
+      // 5 seconds in milliseconds
       toast.success("Someone sent a horn!");
       playHorn();
       lastHornTimeRef.current = now;
     } else {
-      console.log(`Horn throttled. Try again in ${Math.ceil((5000 - timeSinceLastHorn) / 1000)} seconds.`);
+      console.log(
+        `Horn throttled. Try again in ${Math.ceil((5000 - timeSinceLastHorn) / 1000)} seconds.`,
+      );
     }
   };
 
@@ -106,6 +111,24 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
     }
   };
 
+  // Add keyboard shortcuts
+  // f - fullscreen toggle
+  useKeyboardShortcuts("f", toggle, [toggle]);
+  // p - play/pause
+  useKeyboardShortcuts("p", () => togglePlayPauseRef.current?.(), []);
+  // space - play/pause
+  useKeyboardShortcuts(" ", () => togglePlayPauseRef.current?.(), []);
+  // right arrow - skip video
+  useKeyboardShortcuts(
+    "ArrowRight",
+    () => {
+      if (currentVideo) {
+        markAsPlayed();
+      }
+    },
+    [currentVideo, markAsPlayed],
+  );
+
   const joinPartyUrl = getUrl(`/join/${party.hash}`);
 
   return (
@@ -142,6 +165,7 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
                 onPlayerEnd={() => {
                   markAsPlayed();
                 }}
+                onTogglePlayPauseRef={togglePlayPauseRef}
               />
             ) : (
               <EmptyPlayer
