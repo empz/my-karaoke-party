@@ -8,11 +8,11 @@ import { Button } from "~/components/ui/ui/button";
 
 export default async function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between">
-      <div className="p-4">
+    <main className="flex h-[100dvh] flex-col items-center overflow-hidden px-4">
+      <div className="w-full shrink-0 pt-2">
         <Alert
           variant={"default"}
-          className="m-2 bg-purple-600 duration-500 animate-in slide-in-from-top"
+          className="mx-auto max-w-xl bg-purple-600 duration-500 animate-in slide-in-from-top"
         >
           <Megaphone className="h-5 w-5" />
           <AlertTitle>Want to make your own karaoke?</AlertTitle>
@@ -31,19 +31,23 @@ export default async function Home() {
           </AlertDescription>
         </Alert>
       </div>
-      <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16 ">
-        <Image
-          src={logo}
-          width={666}
-          height={375}
-          alt="My Karaoke Party logo"
-          priority={true}
-          placeholder="blur"
-        />
+
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-6 py-4">
+        <div className="relative min-h-0 w-full max-w-xl flex-1">
+          <Image
+            src={logo}
+            alt="My Karaoke Party logo"
+            fill
+            priority={true}
+            placeholder="blur"
+            sizes="(max-width: 640px) 100vw, 36rem"
+            className="object-contain"
+          />
+        </div>
 
         <CreateParty />
 
-        <div>
+        <div className="shrink-0">
           <Link href="/terms-of-service" className="hover:underline">
             Terms of Service
           </Link>
