@@ -26,11 +26,22 @@ const RemoveVideo = z.object({
 	id: z.string(),
 });
 
+const PostponeVideo = z.object({
+	type: z.literal("postpone-video"),
+	id: z.string(),
+});
+
 const Horn = z.object({
 	type: z.literal("horn"),
 });
 
-const Message = z.union([AddVideo, RemoveVideo, MarkAsPlayed, Horn]);
+const Message = z.union([
+	AddVideo,
+	RemoveVideo,
+	MarkAsPlayed,
+	PostponeVideo,
+	Horn,
+]);
 
 type KaraokePartySettings = {
 	orderByFairness: boolean;
@@ -131,6 +142,31 @@ export default class Server implements Party.Server {
 					this.karaokeParty.playlist.splice(index, 1);
 					await this.savekaraokeParty();
 					this.room.broadcast(JSON.stringify(this.karaokeParty.playlist));
+				}
+
+				break;
+			}
+
+			case "postpone-video": {
+				const playlist = this.karaokeParty.playlist;
+				const index = playlist.findIndex(
+					(video) => video.id === data.id && !video.playedAt,
+				);
+
+				if (index !== -1) {
+					const nextIndex = playlist.findIndex(
+						(video, i) => i > index && !video.playedAt,
+					);
+
+					if (nextIndex !== -1) {
+						[playlist[index], playlist[nextIndex]] = [
+							playlist[nextIndex]!,
+							playlist[index]!,
+						];
+
+						await this.savekaraokeParty();
+						this.room.broadcast(JSON.stringify(playlist));
+					}
 				}
 
 				break;

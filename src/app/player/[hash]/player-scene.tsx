@@ -7,7 +7,14 @@ import {
   useHotkeys,
 } from "@mantine/hooks";
 import type { Party } from "@prisma/client";
-import { ListPlus, Maximize, Minimize, SkipForward, X } from "lucide-react";
+import {
+  ListPlus,
+  Maximize,
+  Minimize,
+  MoveDown,
+  SkipForward,
+  X,
+} from "lucide-react";
 import Image from "next/image";
 import type { Message, KaraokeParty } from "party";
 import usePartySocket from "partysocket/react";
@@ -114,6 +121,17 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
     }
   };
 
+  const postponeSong = () => {
+    if (currentVideo) {
+      socket.send(
+        JSON.stringify({
+          type: "postpone-video",
+          id: currentVideo.id,
+        } satisfies Message),
+      );
+    }
+  };
+
   // Add keyboard shortcuts
   // f - fullscreen toggle, space - play/pause, right arrow - skip video
   useHotkeys([
@@ -211,6 +229,20 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
                           }}
                         >
                           <SkipForward />
+                        </Button>
+                      )}
+
+                      {i === 0 && nextVideos.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute bottom-0 left-0 z-10 rounded text-yellow-300 hover:bg-gray-400"
+                          title="Postpone (move back one spot)"
+                          onClick={() => {
+                            postponeSong();
+                          }}
+                        >
+                          <MoveDown />
                         </Button>
                       )}
 
