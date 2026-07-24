@@ -52,6 +52,7 @@ export type Message = z.infer<typeof Message>;
 export type VideoInPlaylist = Omit<Video, "duration"> & {
 	singerName: string;
 	playedAt: Date | null;
+	postponedAt?: Date | null;
 	duration: string | undefined;
 };
 
@@ -119,6 +120,7 @@ export default class Server implements Party.Server {
 						singerName: data.singerName,
 						coverUrl: data.coverUrl,
 						playedAt: null,
+						postponedAt: null,
 						duration: data.duration ?? undefined,
 					});
 
@@ -154,14 +156,24 @@ export default class Server implements Party.Server {
 				);
 
 				if (index !== -1) {
-					const nextIndex = playlist.findIndex(
-						(video, i) => i > index && !video.playedAt,
+					// Prefer a song whose singer hasn't already asked to wait this
+					// turn, so two postponed songs don't alternate while a ready
+					// singer sits behind them.
+					const nextReadyIndex = playlist.findIndex(
+						(video, i) => i > index && !video.playedAt && !video.postponedAt,
 					);
+					const nextIndex =
+						nextReadyIndex !== -1
+							? nextReadyIndex
+							: playlist.findIndex((video, i) => i > index && !video.playedAt);
 
 					if (nextIndex !== -1) {
+						const postponed = playlist[index]!;
+						postponed.postponedAt = new Date();
+
 						[playlist[index], playlist[nextIndex]] = [
 							playlist[nextIndex]!,
-							playlist[index]!,
+							postponed,
 						];
 
 						await this.savekaraokeParty();
@@ -179,6 +191,13 @@ export default class Server implements Party.Server {
 
 				if (video) {
 					video.playedAt = new Date();
+
+					// A song finished: everyone who postponed gets a fresh turn.
+					for (const v of this.karaokeParty.playlist) {
+						if (!v.playedAt) {
+							v.postponedAt = null;
+						}
+					}
 
 					await this.savekaraokeParty();
 					this.room.broadcast(JSON.stringify(this.karaokeParty.playlist));
