@@ -12,6 +12,7 @@ import {
   Maximize,
   Minimize,
   MoveDown,
+  MoveUp,
   SkipForward,
   X,
 } from "lucide-react";
@@ -132,6 +133,16 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
     }
   };
 
+  const moveSong = (videoId: string, direction: "up" | "down") => {
+    socket.send(
+      JSON.stringify({
+        type: "move-video",
+        id: videoId,
+        direction,
+      } satisfies Message),
+    );
+  };
+
   // Add keyboard shortcuts
   // f - fullscreen toggle, space - play/pause, right arrow - skip video
   useHotkeys([
@@ -240,6 +251,34 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
                           title="Postpone (move back one spot)"
                           onClick={() => {
                             postponeSong();
+                          }}
+                        >
+                          <MoveDown />
+                        </Button>
+                      )}
+
+                      {i > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute bottom-0 left-0 z-10 rounded text-yellow-300 hover:bg-gray-400"
+                          title="Move earlier"
+                          onClick={() => {
+                            moveSong(v.id, "up");
+                          }}
+                        >
+                          <MoveUp />
+                        </Button>
+                      )}
+
+                      {i > 0 && i < nextVideos.length - 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute bottom-0 right-0 z-10 rounded text-yellow-300 hover:bg-gray-400"
+                          title="Move later"
+                          onClick={() => {
+                            moveSong(v.id, "down");
                           }}
                         >
                           <MoveDown />

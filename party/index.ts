@@ -31,6 +31,12 @@ const PostponeVideo = z.object({
 	id: z.string(),
 });
 
+const MoveVideo = z.object({
+	type: z.literal("move-video"),
+	id: z.string(),
+	direction: z.enum(["up", "down"]),
+});
+
 const Horn = z.object({
 	type: z.literal("horn"),
 });
@@ -40,6 +46,7 @@ const Message = z.union([
 	RemoveVideo,
 	MarkAsPlayed,
 	PostponeVideo,
+	MoveVideo,
 	Horn,
 ]);
 
@@ -170,10 +177,48 @@ export default class Server implements Party.Server {
 					if (nextIndex !== -1) {
 						const postponed = playlist[index]!;
 						postponed.postponedAt = new Date();
+						this.karaokeParty.settings.orderByFairness = false;
 
 						[playlist[index], playlist[nextIndex]] = [
 							playlist[nextIndex]!,
 							postponed,
+						];
+
+						await this.savekaraokeParty();
+						this.room.broadcast(JSON.stringify(playlist));
+					}
+				}
+
+				break;
+			}
+
+			case "move-video": {
+				const playlist = this.karaokeParty.playlist;
+				const index = playlist.findIndex(
+					(video) => video.id === data.id && !video.playedAt,
+				);
+
+				if (index !== -1) {
+					let swapIndex = -1;
+
+					if (data.direction === "up") {
+						for (let i = index - 1; i >= 0; i -= 1) {
+							if (!playlist[i]?.playedAt) {
+								swapIndex = i;
+								break;
+							}
+						}
+					} else {
+						swapIndex = playlist.findIndex(
+							(video, i) => i > index && !video.playedAt,
+						);
+					}
+
+					if (swapIndex !== -1) {
+						this.karaokeParty.settings.orderByFairness = false;
+						[playlist[index], playlist[swapIndex]] = [
+							playlist[swapIndex]!,
+							playlist[index]!,
 						];
 
 						await this.savekaraokeParty();
