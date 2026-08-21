@@ -197,13 +197,14 @@ export default class Server implements Party.Server {
 				const index = playlist.findIndex(
 					(video) => video.id === data.id && !video.playedAt,
 				);
+				const currentIndex = playlist.findIndex((video) => !video.playedAt);
 
 				if (index !== -1) {
 					let swapIndex = -1;
 
 					if (data.direction === "up") {
 						for (let i = index - 1; i >= 0; i -= 1) {
-							if (!playlist[i]?.playedAt) {
+							if (i > currentIndex && !playlist[i]?.playedAt) {
 								swapIndex = i;
 								break;
 							}

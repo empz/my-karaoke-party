@@ -257,7 +257,7 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
                         </Button>
                       )}
 
-                      {i > 0 && (
+                      {i > 1 && (
                         <Button
                           variant="ghost"
                           size="icon"
