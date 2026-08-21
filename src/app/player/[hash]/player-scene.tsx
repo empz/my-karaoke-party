@@ -7,11 +7,15 @@ import {
   useHotkeys,
 } from "@mantine/hooks";
 import type { Party } from "@prisma/client";
+import { decode } from "html-entities";
 import {
+  ChevronLeft,
+  ChevronRight,
   ListPlus,
   Maximize,
   Minimize,
   MoveDown,
+  Shuffle,
   SkipForward,
   X,
 } from "lucide-react";
@@ -26,6 +30,8 @@ import { Player } from "~/components/player";
 import { SongSearch } from "~/components/song-search";
 import { Button } from "~/components/ui/ui/button";
 import { env } from "~/env";
+import { cn } from "~/lib/utils";
+import { moveInQueue } from "~/utils/playlist";
 import { getUrl } from "~/utils/url";
 
 type Props = {
@@ -37,6 +43,15 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
   const [playlist, setPlaylist] = useState<KaraokeParty["playlist"]>(
     initialPlaylist.playlist ?? [],
   );
+
+  const [fairQueue, setFairQueue] = useState(
+    initialPlaylist.settings?.orderByFairness ?? true,
+  );
+
+  // Ids of the song being dragged and of the slot it is hovering over, so the
+  // strip can show where it would land.
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const [playHorn] = useSound("/sounds/buzzer.mp3");
   const lastHornTimeRef = useRef<number>(0);
@@ -69,6 +84,10 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
 
       if (eventData.type === "horn") {
         playThrottledHorn();
+      }
+
+      if (eventData.type === "settings") {
+        setFairQueue(Boolean(eventData.settings?.orderByFairness));
       }
 
       if (Array.isArray(eventData)) {
@@ -132,6 +151,50 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
     }
   };
 
+  /** Moves an upcoming song to `toIndex` in the queue (0 is the song playing now). */
+  const moveSong = (videoId: string, toIndex: number) => {
+    const reordered = moveInQueue(playlist, videoId, toIndex);
+
+    if (reordered === playlist) return;
+
+    // Show the new order right away; the server broadcast confirms it.
+    setPlaylist(reordered);
+
+    socket.send(
+      JSON.stringify({
+        type: "move-video",
+        id: videoId,
+        toIndex,
+      } satisfies Message),
+    );
+
+    if (fairQueue) {
+      // The server turns fair ordering off so the next added song doesn't
+      // undo this move. Say so, instead of letting it change silently.
+      setFairQueue(false);
+      toast.info("Fair queue paused - the playlist is now sorted manually.");
+    }
+  };
+
+  const toggleFairQueue = () => {
+    const enabled = !fairQueue;
+
+    setFairQueue(enabled);
+
+    socket.send(
+      JSON.stringify({
+        type: "set-fair-queue",
+        enabled,
+      } satisfies Message),
+    );
+
+    toast.info(
+      enabled
+        ? "Fair queue on - songs are spread out between singers again."
+        : "Fair queue off - songs stay in the order you set.",
+    );
+  };
+
   // Add keyboard shortcuts
   // f - fullscreen toggle, space - play/pause, right arrow - skip video
   useHotkeys([
@@ -192,63 +255,155 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
               />
             )}
           </div>
-          <div className="h-1/6 min-h-[150px] border-t border-slate-500 p-4">
+          <div className="flex h-1/6 min-h-[150px] flex-row space-x-3 border-t border-slate-500 p-4">
+            <div className="flex shrink-0 flex-col items-center justify-center">
+              <Button
+                variant="ghost"
+                size="icon"
+                title={
+                  fairQueue
+                    ? "Fair queue on - click to sort the playlist manually"
+                    : "Manual order - click to spread songs between singers again"
+                }
+                onClick={toggleFairQueue}
+              >
+                <Shuffle
+                  className={fairQueue ? "text-emerald-400" : "text-slate-400"}
+                />
+              </Button>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                {fairQueue ? "Fair" : "Manual"}
+              </span>
+            </div>
             {nextVideos.length > 0 ? (
               <>
-                <div className="no-scrollbar flex h-full flex-row space-x-2 overflow-x-scroll">
-                  {nextVideos.map((v, i) => (
-                    <div
-                      key={v.id}
-                      className="relative flex aspect-[4/3] h-full items-center justify-center rounded-lg bg-slate-200 p-3 text-center text-primary-foreground animate-in slide-in-from-bottom first:border-2 first:border-amber-500"
-                    >
-                      <Image
-                        src={v.coverUrl}
-                        fill={true}
-                        className="rounded-lg hover:opacity-50"
-                        alt="Cover"
-                      />
+                <div className="no-scrollbar flex h-full grow flex-row space-x-2 overflow-x-scroll">
+                  {nextVideos.map((v, i) => {
+                    // The first one is on screen right now: it stays put.
+                    const isPlaying = i === 0;
+                    const isDragging = draggedId === v.id;
 
-                      <Button
-                        variant="link"
-                        size="icon"
-                        className="absolute right-0 top-0 z-10 hover:bg-gray-400"
-                        onClick={() => {
-                          removeSong(v.id);
+                    return (
+                      <div
+                        key={v.id}
+                        title={decode(v.title)}
+                        draggable={!isPlaying}
+                        onDragStart={(e) => {
+                          // Firefox only starts a drag once some data is set.
+                          e.dataTransfer.setData("text/plain", v.id);
+                          e.dataTransfer.effectAllowed = "move";
+                          setDraggedId(v.id);
                         }}
+                        onDragEnd={() => {
+                          setDraggedId(null);
+                          setDragOverIndex(null);
+                        }}
+                        onDragOver={(e) => {
+                          if (!draggedId || isPlaying) return;
+
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          setDragOverIndex(i);
+                        }}
+                        onDragLeave={() => {
+                          setDragOverIndex((current) =>
+                            current === i ? null : current,
+                          );
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+
+                          if (draggedId && !isPlaying) {
+                            moveSong(draggedId, i);
+                          }
+
+                          setDraggedId(null);
+                          setDragOverIndex(null);
+                        }}
+                        className={cn(
+                          "relative flex aspect-[4/3] h-full items-center justify-center rounded-lg bg-slate-200 p-3 text-center text-primary-foreground animate-in slide-in-from-bottom first:border-2 first:border-amber-500",
+                          !isPlaying && "cursor-grab active:cursor-grabbing",
+                          isDragging && "opacity-40",
+                          dragOverIndex === i &&
+                            !isDragging &&
+                            "ring-2 ring-amber-400",
+                        )}
                       >
-                        <X color="red" />
-                      </Button>
+                        <Image
+                          src={v.coverUrl}
+                          fill={true}
+                          className="pointer-events-none rounded-lg hover:opacity-50"
+                          alt="Cover"
+                        />
 
-                      {i === 0 && (
                         <Button
-                          variant="ghost"
+                          variant="link"
                           size="icon"
-                          className="absolute bottom-0 right-0 z-10 rounded text-yellow-300 hover:bg-gray-400"
+                          className="absolute right-0 top-0 z-10 hover:bg-gray-400"
                           onClick={() => {
-                            markAsPlayed();
+                            removeSong(v.id);
                           }}
                         >
-                          <SkipForward />
+                          <X color="red" />
                         </Button>
-                      )}
 
-                      {i === 0 && nextVideos.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="absolute bottom-0 left-0 z-10 rounded text-yellow-300 hover:bg-gray-400"
-                          title="Postpone (move back one spot)"
-                          onClick={() => {
-                            postponeSong();
-                          }}
-                        >
-                          <MoveDown />
-                        </Button>
-                      )}
+                        {isPlaying && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute bottom-0 right-0 z-10 rounded text-yellow-300 hover:bg-gray-400"
+                            onClick={() => {
+                              markAsPlayed();
+                            }}
+                          >
+                            <SkipForward />
+                          </Button>
+                        )}
 
-                      {/* <div>{decode(v.title)}</div> */}
-                    </div>
-                  ))}
+                        {isPlaying && nextVideos.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute bottom-0 left-0 z-10 rounded text-yellow-300 hover:bg-gray-400"
+                            title="Postpone (move back one spot)"
+                            onClick={() => {
+                              postponeSong();
+                            }}
+                          >
+                            <MoveDown />
+                          </Button>
+                        )}
+
+                        {!isPlaying && i > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute bottom-0 left-0 z-10 rounded text-yellow-300 hover:bg-gray-400"
+                            title="Move up one spot"
+                            onClick={() => {
+                              moveSong(v.id, i - 1);
+                            }}
+                          >
+                            <ChevronLeft />
+                          </Button>
+                        )}
+
+                        {!isPlaying && i < nextVideos.length - 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute bottom-0 right-0 z-10 rounded text-yellow-300 hover:bg-gray-400"
+                            title="Move back one spot"
+                            onClick={() => {
+                              moveSong(v.id, i + 1);
+                            }}
+                          >
+                            <ChevronRight />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             ) : (

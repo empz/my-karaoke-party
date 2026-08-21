@@ -2,6 +2,7 @@ import type { Video } from "@prisma/client";
 import type * as Party from "partykit/server";
 import { z } from "zod";
 import { orderByFairness } from "~/utils/array";
+import { moveInQueue } from "~/utils/playlist";
 
 const EXPIRY_PERIOD_MILLISECONDS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -31,6 +32,18 @@ const PostponeVideo = z.object({
 	id: z.string(),
 });
 
+const MoveVideo = z.object({
+	type: z.literal("move-video"),
+	id: z.string(),
+	/** Target position in the queue of unplayed videos. 0 is the song playing right now. */
+	toIndex: z.number().int().nonnegative(),
+});
+
+const SetFairQueue = z.object({
+	type: z.literal("set-fair-queue"),
+	enabled: z.boolean(),
+});
+
 const Horn = z.object({
 	type: z.literal("horn"),
 });
@@ -40,6 +53,8 @@ const Message = z.union([
 	RemoveVideo,
 	MarkAsPlayed,
 	PostponeVideo,
+	MoveVideo,
+	SetFairQueue,
 	Horn,
 ]);
 
@@ -58,6 +73,11 @@ export type VideoInPlaylist = Omit<Video, "duration"> & {
 
 export type KaraokeParty = {
 	playlist: VideoInPlaylist[];
+	settings: KaraokePartySettings;
+};
+
+export type SettingsUpdate = {
+	type: "settings";
 	settings: KaraokePartySettings;
 };
 
@@ -184,6 +204,44 @@ export default class Server implements Party.Server {
 				break;
 			}
 
+			case "move-video": {
+				const reordered = moveInQueue(
+					this.karaokeParty.playlist,
+					data.id,
+					data.toIndex,
+				);
+
+				if (reordered !== this.karaokeParty.playlist) {
+					this.karaokeParty.playlist = reordered;
+
+					// The host just said where this song goes; re-running the fair
+					// order on the next add would throw that away.
+					this.karaokeParty.settings.orderByFairness = false;
+
+					await this.savekaraokeParty();
+					this.broadcastParty();
+				}
+
+				break;
+			}
+
+			case "set-fair-queue": {
+				if (this.karaokeParty.settings.orderByFairness === data.enabled) {
+					break;
+				}
+
+				this.karaokeParty.settings.orderByFairness = data.enabled;
+
+				if (data.enabled) {
+					this.reorderPlaylistByFairness();
+				}
+
+				await this.savekaraokeParty();
+				this.broadcastParty();
+
+				break;
+			}
+
 			case "mark-as-played": {
 				const video = this.karaokeParty.playlist.find(
 					(video) => video.id === data.id && !video.playedAt,
@@ -240,6 +298,18 @@ export default class Server implements Party.Server {
 		}
 
 		return new Response("Party not found =(", { status: 404 });
+	}
+
+	broadcastParty() {
+		if (!this.karaokeParty) return;
+
+		this.room.broadcast(JSON.stringify(this.karaokeParty.playlist));
+		this.room.broadcast(
+			JSON.stringify({
+				type: "settings",
+				settings: this.karaokeParty.settings,
+			} satisfies SettingsUpdate),
+		);
 	}
 
 	async savekaraokeParty() {

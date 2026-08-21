@@ -8,6 +8,7 @@ YouTube-based karaoke party web app with remote searching and queuing from QR co
 - Join existing party via link or QR.
 - Search karaoke videos on YouTube and add them to the queue.
 - Queue is sorted by "fairness" to avoid mic hogs.
+- The host can reorder the queue by hand (drag a song or use the arrows), which pauses the fair sorting until it is switched back on.
 
 ## Stack
 
