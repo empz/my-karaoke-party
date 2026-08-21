@@ -34,6 +34,85 @@ type Props = {
   initialPlaylist: KaraokeParty;
 };
 
+function postponeQueuedSong(playlist: KaraokeParty["playlist"]) {
+  const nextPlaylist = [...playlist];
+  const currentIndex = nextPlaylist.findIndex((video) => !video.playedAt);
+
+  if (currentIndex === -1) {
+    return playlist;
+  }
+
+  const nextReadyIndex = nextPlaylist.findIndex(
+    (video, i) => i > currentIndex && !video.playedAt && !video.postponedAt,
+  );
+  const nextIndex =
+    nextReadyIndex !== -1
+      ? nextReadyIndex
+      : nextPlaylist.findIndex((video, i) => i > currentIndex && !video.playedAt);
+
+  if (nextIndex === -1) {
+    return playlist;
+  }
+
+  const currentVideo = nextPlaylist[currentIndex];
+
+  if (!currentVideo) {
+    return playlist;
+  }
+
+  nextPlaylist[currentIndex] = {
+    ...currentVideo,
+    postponedAt: new Date(),
+  };
+
+  [nextPlaylist[currentIndex], nextPlaylist[nextIndex]] = [
+    nextPlaylist[nextIndex]!,
+    nextPlaylist[currentIndex]!,
+  ];
+
+  return nextPlaylist;
+}
+
+function moveQueuedSong(
+  playlist: KaraokeParty["playlist"],
+  videoId: string,
+  direction: "up" | "down",
+) {
+  const nextPlaylist = [...playlist];
+  const currentIndex = nextPlaylist.findIndex((video) => !video.playedAt);
+  const index = nextPlaylist.findIndex(
+    (video) => video.id === videoId && !video.playedAt,
+  );
+
+  if (currentIndex === -1 || index === -1) {
+    return playlist;
+  }
+
+  let swapIndex = -1;
+
+  if (direction === "up") {
+    for (let i = index - 1; i > currentIndex; i -= 1) {
+      if (!nextPlaylist[i]?.playedAt) {
+        swapIndex = i;
+        break;
+      }
+    }
+  } else {
+    swapIndex = nextPlaylist.findIndex((video, i) => i > index && !video.playedAt);
+  }
+
+  if (swapIndex === -1) {
+    return playlist;
+  }
+
+  [nextPlaylist[index], nextPlaylist[swapIndex]] = [
+    nextPlaylist[swapIndex]!,
+    nextPlaylist[index]!,
+  ];
+
+  return nextPlaylist;
+}
+
 export default function PlayerScene({ party, initialPlaylist }: Props) {
   const [playlist, setPlaylist] = useState<KaraokeParty["playlist"]>(
     initialPlaylist.playlist ?? [],
@@ -124,6 +203,7 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
 
   const postponeSong = () => {
     if (currentVideo) {
+      setPlaylist((currentPlaylist) => postponeQueuedSong(currentPlaylist));
       socket.send(
         JSON.stringify({
           type: "postpone-video",
@@ -134,6 +214,9 @@ export default function PlayerScene({ party, initialPlaylist }: Props) {
   };
 
   const moveSong = (videoId: string, direction: "up" | "down") => {
+    setPlaylist((currentPlaylist) =>
+      moveQueuedSong(currentPlaylist, videoId, direction),
+    );
     socket.send(
       JSON.stringify({
         type: "move-video",
